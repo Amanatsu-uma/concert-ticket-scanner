@@ -1,0 +1,136 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>演奏会 受付スキャナー</title>
+  <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 600px;
+      margin: 30px auto;
+      padding: 16px;
+      text-align: center;
+    }
+    #reader {
+      width: 100%;
+      margin: 20px auto;
+    }
+    button {
+      padding: 14px 24px;
+      font-size: 16px;
+      margin: 8px;
+      border: none;
+      border-radius: 8px;
+      background: #245c8a;
+      color: white;
+    }
+    #stopButton { background: #777; }
+    #message { margin: 20px 0; }
+  </style>
+</head>
+<body>
+  <h2>演奏会 受付スキャナー</h2>
+  <p>受付用QRコードを読み取ってください。</p>
+
+  <div id="reader"></div>
+
+  <button id="startButton" onclick="startScanner()">
+    カメラを起動
+  </button>
+  <button id="stopButton" onclick="stopScanner()" hidden>
+    カメラを停止
+  </button>
+
+  <p id="message">受付画面から開いてください。</p>
+
+  <script>
+    let scanner = null;
+    let running = false;
+    let processing = false;
+
+    function message(text) {
+      document.getElementById("message").textContent = text;
+    }
+
+    function startScanner() {
+      if (running || processing) return;
+
+      scanner = new Html5Qrcode("reader");
+      message("カメラを起動しています…");
+
+      scanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        function(decodedText) {
+          if (processing) return;
+
+          let token = "";
+          try {
+            const url = new URL(decodedText);
+            token = url.searchParams.get("token") || "";
+          } catch (e) {}
+
+          if (!/^[0-9a-f-]{72}$/i.test(token)) {
+            message("受付用QRコードではありません。");
+            return;
+          }
+
+          processing = true;
+          scanner.pause(true);
+          message("受付画面にチケット情報を送信しています…");
+
+          if (!window.opener || window.opener.closed) {
+            processing = false;
+            scanner.resume();
+            message("受付画面との接続がありません。");
+            return;
+          }
+
+          window.opener.postMessage({
+            type: "CONCERT_TICKET_SCANNED",
+            token: token
+          }, "*");
+
+          message("読み取りました。受付画面をご確認ください。");
+        },
+        function() {}
+      ).then(function() {
+        running = true;
+        document.getElementById("startButton").hidden = true;
+        document.getElementById("stopButton").hidden = false;
+        message("QRコードを読み取ってください。");
+      }).catch(function(error) {
+        message("カメラエラー: " +
+          (error.name || "") + " " + (error.message || error));
+      });
+    }
+
+    function stopScanner() {
+      if (!scanner || !running) return;
+
+      scanner.stop().then(function() {
+        running = false;
+        processing = false;
+        document.getElementById("startButton").hidden = false;
+        document.getElementById("stopButton").hidden = true;
+        message("カメラを停止しました。");
+      }).catch(function(error) {
+        message("停止エラー: " + error);
+      });
+    }
+
+    window.addEventListener("message", function(event) {
+      if (event.data && event.data.type === "RESUME_SCANNER") {
+        if (scanner && running && processing) {
+          processing = false;
+          scanner.resume();
+          message("次のQRコードを読み取ってください。");
+        }
+      }
+    });
+  </script>
+</body>
+</html>
